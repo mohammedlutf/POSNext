@@ -385,12 +385,13 @@ def search_by_barcode(barcode, pos_profile):
 		if not pos_profile:
 			frappe.throw(_("POS Profile is required"))
 
-		# Try to resolve weighted/priced barcodes if barcode_resolver is available
-		resolved_barcode_data = None
+		# Parse the local scale format before consulting the optional resolver.
 		effective_barcode = barcode
-		from pos_next.services.barcode import resolve_barcode
+		from pos_next.services.barcode import parse_scale_barcode, resolve_barcode
 
-		resolved_barcode_data = resolve_barcode(barcode, pos_profile)
+		resolved_barcode_data = parse_scale_barcode(barcode)
+		if not resolved_barcode_data:
+			resolved_barcode_data = resolve_barcode(barcode, pos_profile)
 		if resolved_barcode_data and resolved_barcode_data.get("item_barcode"):
 			effective_barcode = resolved_barcode_data["item_barcode"]
 
@@ -1209,13 +1210,14 @@ def get_items(
 	try:
 		pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
 
-		# Try to resolve weighted/priced barcodes if barcode_resolver is available
 		resolved_barcode_data = None
 		effective_search_term = search_term
 		if search_term and len(search_term.strip().split()) == 1:
-			from pos_next.services.barcode import resolve_barcode
+			from pos_next.services.barcode import parse_scale_barcode, resolve_barcode
 
-			resolved_barcode_data = resolve_barcode(search_term.strip(), pos_profile)
+			resolved_barcode_data = parse_scale_barcode(search_term.strip())
+			if not resolved_barcode_data:
+				resolved_barcode_data = resolve_barcode(search_term.strip(), pos_profile)
 			if resolved_barcode_data and resolved_barcode_data.get("item_barcode"):
 				# Use the extracted item barcode for searching
 				effective_search_term = resolved_barcode_data["item_barcode"]

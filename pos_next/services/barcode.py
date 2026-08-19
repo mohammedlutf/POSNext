@@ -30,6 +30,9 @@ from erpnext.stock.get_item_details import get_conversion_factor
 
 logger = logging.getLogger(__name__)
 
+SCALE_BARCODE_PREFIX = "221"
+SCALE_BARCODE_LENGTH = 13
+
 
 class BarcodeResult(TypedDict, total=False):
 	"""Type definition for barcode resolution result."""
@@ -49,6 +52,28 @@ class ResolvedItemData(TypedDict, total=False):
 	resolved_uom: str | None
 	resolved_price: float | None
 	resolved_barcode_type: str | None
+
+
+def parse_scale_barcode(barcode: str) -> BarcodeResult | None:
+	"""Parse the store's 13-digit scale barcode format.
+
+	The format is ``221`` + four-digit item suffix + five-digit weight in grams
+	+ one check digit. The item lookup key includes the scale prefix and suffix.
+	For example, ``2211055005001`` resolves to item ``2211055`` and ``0.5 Kg``.
+	"""
+	barcode = str(barcode or "").strip()
+	if len(barcode) != SCALE_BARCODE_LENGTH or not barcode.isdigit():
+		return None
+	if not barcode.startswith(SCALE_BARCODE_PREFIX):
+		return None
+
+	weight_grams = int(barcode[7:12])
+	return {
+		"item_barcode": barcode[:7],
+		"qty": weight_grams / 1000,
+		"barcode_type": "Weighted",
+		"uom": "Kg",
+	}
 
 
 @lru_cache(maxsize=1)
@@ -220,10 +245,8 @@ def compute_resolved_item_data(
 	    ...     item_data = compute_resolved_item_data(resolved, item_rate=10.0)
 	    ...     print(f"Qty: {item_data['resolved_qty']}, UOM: {item_data['resolved_uom']}")
 	"""
-	if not resolved_barcode or not is_barcode_resolver_available():
+	if not resolved_barcode:
 		return None
-
-	from barcode_resolver.barcode_resolver.doctype.barcode_rule.utils import BarcodeTypes
 
 	barcode_type = resolved_barcode.get("barcode_type")
 	barcode_uom = resolved_barcode.get("uom")
@@ -247,7 +270,7 @@ def compute_resolved_item_data(
 	# the parsed value and falling back to reconstructing from segments.
 	encoded_qty = _coerce_value(resolved_barcode, "qty")
 	encoded_price = _coerce_value(resolved_barcode, "price")
-	if barcode_type == BarcodeTypes.WEIGHTED.value:
+	if barcode_type == "Weighted":
 		if encoded_qty is None:
 			logger.warning(
 				"compute_resolved_item_data: weighted barcode missing qty and segments: %s",
@@ -269,7 +292,7 @@ def compute_resolved_item_data(
 			"resolved_price": price,
 			"resolved_barcode_type": barcode_type,
 		}
-	elif barcode_type == BarcodeTypes.PRICED.value:
+	elif barcode_type == "Priced":
 		if encoded_price is None:
 			logger.warning(
 				"compute_resolved_item_data: priced barcode missing price and segments: %s",
